@@ -1,0 +1,86 @@
+name: Deploiement production
+
+on:
+  workflow_run:
+    workflows: ["Construction et publication"]
+    types: [completed]
+    branches: [main]
+
+env:
+  IMAGE_API:      ${{ secrets.ACR_NAME }}.azurecr.io/todo-infra-api
+  IMAGE_FRONTEND: ${{ secrets.ACR_NAME }}.azurecr.io/todo-infra-frontend
+
+jobs:
+  production:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connexion Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: SHA de la revision courante
+        id: meta
+        run: echo "sha=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Sauvegarde de la revision active pour rollback
+        id: current
+        run: |
+          REV=$(az containerapp revision list \
+            --name           todo-infra-api \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query          "[?properties.active].name | [0]" -o tsv)
+          echo "revision=$REV" >> $GITHUB_OUTPUT
+
+      - name: Deploiement API production
+        run: |
+          az containerapp update \
+            --name           todo-infra-api \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --image          ${{ env.IMAGE_API }}:${{ steps.meta.outputs.sha }} \
+            --set-env-vars   PORT=4000 NODE_ENV=production \
+            --set-env-vars   DATABASE_URL=secretref:postgres-connection-string \
+            --set-env-vars   REDIS_URL=secretref:redis-connection-string \
+            --set-env-vars   CORS_ORIGIN=secretref:cors-origin
+
+      - name: Deploiement frontend production
+        run: |
+          az containerapp update \
+            --name           todo-infra-frontend \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --image          ${{ env.IMAGE_FRONTEND }}:${{ steps.meta.outputs.sha }} \
+            --set-env-vars   API_URL=secretref:api-internal-url
+
+      - name: Test de sante production
+        id: smoke
+        run: |
+          FQDN=$(az containerapp show \
+            --name           todo-infra-api \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query          "properties.configuration.ingress.fqdn" -o tsv)
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/health")
+            [[ "$STATUS" == "200" ]] && echo "Production operationnelle" && exit 0
+            echo "Tentative $i — statut $STATUS"
+            sleep 10
+          done
+          echo "smoke_failed=true" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Retour arriere automatique
+        if: failure() && steps.smoke.outputs.smoke_failed == 'true'
+        run: |
+          az containerapp revision activate \
+            --revision       ${{ steps.current.outputs.revision }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
+          az containerapp ingress traffic set \
+            --name           todo-infra-api \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --revision-weight ${{ steps.current.outputs.revision }}=100
+          echo "Retour arriere vers ${{ steps.current.outputs.revision }} effectue"
+          exit 1
