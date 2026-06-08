@@ -1,17 +1,12 @@
 # Kamka Todo
 
-Application trois tiers conteneurisée : frontend Angular, API GraphQL Node.js, base de données PostgreSQL, cache Redis.
+Une petite application todo en trois parties : un frontend Angular, une API GraphQL en Node.js, et une base PostgreSQL avec un cache Redis. L'application en elle-même est volontairement simple — c'est toute la partie infrastructure autour qui est le vrai sujet.
 
 ---
 
-## Lancer le projet en local
+## Lancer le projet
 
-### Prérequis
-
-- Docker Desktop installé et démarré
-- Git
-
-### Etapes
+Tu as besoin de Docker Desktop et de Git, c'est tout.
 
 ```bash
 git clone https://github.com/BahaEdinAbdelkhalek/todo-infra.git
@@ -19,25 +14,27 @@ cd todo-infra
 cp .env.example .env
 ```
 
-Ouvrir `.env` et changer `POSTGRES_PASSWORD` par un vrai mot de passe.
+Ouvre le fichier `.env` et remplace `changeme` par un vrai mot de passe pour la base de données. Ensuite :
 
 ```bash
 docker compose up --build
 ```
 
-| Service       | URL                        |
-|---------------|----------------------------|
-| Application   | http://localhost:3000      |
-| API GraphQL   | http://localhost:4000/graphql |
-| Supervision   | http://localhost:3001      |
+C'est tout. Docker va construire les images et démarrer les 5 services dans le bon ordre. Ça prend 2-3 minutes la première fois.
 
-Arreter la stack :
+| Ce que tu vois | Adresse |
+|---|---|
+| L'application | http://localhost:3000 |
+| L'API GraphQL | http://localhost:4000/graphql |
+| La supervision | http://localhost:3001 |
+
+Pour tout arrêter :
 
 ```bash
 docker compose down
 ```
 
-Supprimer aussi les volumes (base de données) :
+Pour tout effacer y compris la base de données :
 
 ```bash
 docker compose down -v
@@ -47,18 +44,18 @@ docker compose down -v
 
 ## Variables d'environnement
 
-Copier `.env.example` en `.env`. Ce fichier n'est jamais commité (voir `.gitignore`).
+Le fichier `.env` ne doit jamais être commité. Seul `.env.example` est dans le repo pour montrer ce qui est nécessaire.
 
-| Variable           | Description                              | Obligatoire |
-|--------------------|------------------------------------------|-------------|
-| `POSTGRES_PASSWORD`| Mot de passe PostgreSQL                  | Oui         |
-| `POSTGRES_USER`    | Utilisateur PostgreSQL (défaut: todo_user) | Non       |
-| `POSTGRES_DB`      | Nom de la base (défaut: todo_db)         | Non         |
-| `CORS_ORIGIN`      | URL autorisée par l'API                  | Non         |
-| `FRONTEND_PORT`    | Port local du frontend (défaut: 3000)    | Non         |
-| `MONITORING_PORT`  | Port local Uptime Kuma (défaut: 3001)    | Non         |
+| Variable | Ce que c'est | Obligatoire |
+|---|---|---|
+| `POSTGRES_PASSWORD` | Mot de passe de la base | Oui |
+| `POSTGRES_USER` | Utilisateur (défaut : todo_user) | Non |
+| `POSTGRES_DB` | Nom de la base (défaut : todo_db) | Non |
+| `CORS_ORIGIN` | URL autorisée par l'API | Non |
+| `FRONTEND_PORT` | Port du frontend (défaut : 3000) | Non |
+| `MONITORING_PORT` | Port Uptime Kuma (défaut : 3001) | Non |
 
-Pour Azure : ces variables sont injectées via les secrets Azure Container Apps. Aucun fichier `.env` n'est déployé.
+Sur Azure, ces variables sont injectées directement dans les Container Apps via des secrets — aucun fichier `.env` n'est déployé sur le serveur.
 
 ---
 
@@ -66,111 +63,117 @@ Pour Azure : ces variables sont injectées via les secrets Azure Container Apps.
 
 ```
 todo-infra/
-├── backend/              API Node.js + Apollo GraphQL
+├── backend/
 │   ├── src/
-│   │   ├── index.js      Point d'entrée, Express + Apollo
-│   │   ├── schema.js     Schema GraphQL
-│   │   ├── resolvers.js  Logique CRUD
-│   │   ├── db.js         Connexion PostgreSQL + migrations
-│   │   └── cache.js      Connexion Redis + helpers
-│   ├── Dockerfile        Build multi-stage, utilisateur non-root
-│   └── .env.example      Variables requises
-├── frontend/             Application Angular 18
-│   ├── src/
-│   ├── nginx/            Config Nginx avec envsubst
-│   └── Dockerfile        Build Angular + Nginx
+│   │   ├── index.js       point d'entrée Express + Apollo
+│   │   ├── schema.js      schéma GraphQL
+│   │   ├── resolvers.js   logique CRUD
+│   │   ├── db.js          connexion PostgreSQL et migrations
+│   │   └── cache.js       connexion Redis
+│   ├── Dockerfile
+│   └── .env.example
+├── frontend/
+│   ├── src/               application Angular 18
+│   ├── nginx/nginx.conf   config Nginx
+│   └── Dockerfile
 ├── scripts/
-│   ├── deploy.sh         Bootstrap hote Linux + lancement stack
-│   ├── backup.sh         Sauvegarde PostgreSQL + rotation
-│   └── rollback.sh       Retour arriere vers une image precedente
+│   ├── deploy.sh          installe Docker + lance la stack sur un serveur vierge
+│   ├── backup.sh          sauvegarde PostgreSQL avec rotation automatique
+│   └── rollback.sh        revient à une version précédente
 ├── .github/workflows/
-│   ├── analyse.yml           Lint backend + frontend
-│   ├── construction.yml      Build + push images vers ACR
-│   ├── deploiement-staging.yml    Deploy sur branche dev
-│   └── deploiement-production.yml Deploy sur branche main + rollback auto
-├── docker-compose.yml    Stack locale complete (5 services)
-└── .env.example          Template des variables
+│   ├── analyse.yml                 lint
+│   ├── construction.yml            build + push vers ACR
+│   ├── deploiement-staging.yml     deploy sur la branche dev
+│   └── deploiement-production.yml  deploy sur main avec rollback auto
+├── docker-compose.yml
+└── .env.example
 ```
 
 ---
 
-## Pipeline CI/CD
+## Comment fonctionne le pipeline
+
+Un push déclenche tout dans l'ordre suivant :
 
 ```
 push sur dev ou main
         │
         ▼
-  analyse.yml
-  Lint backend + frontend
+  analyse.yml — lint backend et frontend
+  (si ça rate ici, rien d'autre ne tourne)
         │
         ▼
-  construction.yml
-  Build images Docker
-  Push vers Azure Container Registry
+  construction.yml — build des images Docker
+  push vers Azure Container Registry
         │
-        ├── branche dev ──▶ deploiement-staging.yml
-        │                   Deploy staging + test de sante
+        ├── sur dev ──▶ deploiement-staging.yml
+        │               déploie sur l'environnement de staging
+        │               vérifie que /health répond 200
         │
-        └── branche main ──▶ deploiement-production.yml
-                             Deploy production + test de sante
-                             Rollback automatique si echec
+        └── sur main ──▶ deploiement-production.yml
+                         sauvegarde la révision active
+                         déploie en production
+                         vérifie que /health répond 200
+                         si ça ne répond pas → rollback automatique
 ```
-
-Chaque etape bloque la suivante. Un echec de lint empeche le build. Un echec du test de sante annule le deploy et restaure la revision precedente automatiquement.
 
 ---
 
 ## Supervision
 
-Uptime Kuma tourne dans la stack sur le port 3001. Premiere connexion : creer un compte administrateur sur http://localhost:3001.
+Uptime Kuma démarre avec le reste de la stack. Première visite sur http://localhost:3001 : crée un compte admin.
 
-Moniteurs a configurer apres le premier lancement :
+Ensuite configure ces trois moniteurs :
 
-| Nom              | Type  | URL                                  |
-|------------------|-------|--------------------------------------|
-| API sante        | HTTP  | http://api:4000/health               |
-| API pret         | HTTP  | http://api:4000/health/ready         |
-| Frontend         | HTTP  | http://frontend/health               |
+| Moniteur | URL à surveiller |
+|---|---|
+| API | http://api:4000/health |
+| API (base de données) | http://api:4000/health/ready |
+| Frontend | http://frontend/health |
 
 ---
 
-## Scripts Bash
+## Scripts
 
-Tous les scripts utilisent `set -euo pipefail` — ils s'arretent immediatement sur toute erreur.
+Tous les scripts s'arrêtent immédiatement si quelque chose se passe mal (`set -euo pipefail`).
 
+Déployer sur un serveur Linux vierge :
 ```bash
 sudo REPO_URL=https://github.com/BahaEdinAbdelkhalek/todo-infra.git bash scripts/deploy.sh
 ```
 
+Sauvegarder la base de données :
 ```bash
 bash scripts/backup.sh
 ```
 
+Revenir à une version précédente :
 ```bash
 bash scripts/rollback.sh sha-abc1234
 ```
 
 ---
 
-## Differences dev / prod
+## Différences entre le local et Azure
 
-| Point                  | Local (docker compose)         | Azure (Container Apps)              |
-|------------------------|--------------------------------|-------------------------------------|
-| Secrets                | Fichier `.env` local           | Azure Key Vault via secretref       |
-| URL API dans frontend  | `http://api:4000` via envsubst | URL interne Container Apps          |
-| Base de données        | Postgres dans compose          | Azure Database for PostgreSQL       |
-| Cache                  | Redis dans compose             | Azure Cache for Redis               |
-| HTTPS                  | Non                            | Gere par Azure automatiquement      |
-| Images                 | Buildees localement            | Buildees par CI, stockees dans ACR  |
+En local tout tourne dans docker-compose. Sur Azure, PostgreSQL et Redis sont remplacés par des services managés Azure — même code, juste les variables d'environnement qui changent.
+
+| | Local | Azure |
+|---|---|---|
+| Secrets | fichier `.env` | Azure Key Vault |
+| Base de données | Postgres dans compose | Azure Database for PostgreSQL |
+| Cache | Redis dans compose | Azure Cache for Redis |
+| HTTPS | non | géré par Azure |
+| Images | buildées localement | buildées par le pipeline, stockées dans ACR |
 
 ---
 
-## Secrets pour le pipeline GitHub
+## Secrets GitHub Actions
 
-A ajouter dans GitHub > Settings > Secrets and variables > Actions :
+À ajouter dans ton repo GitHub sous Settings → Secrets → Actions :
 
-| Secret                  | Comment l'obtenir                                      |
-|-------------------------|--------------------------------------------------------|
-| `AZURE_CREDENTIALS`     | `az ad sp create-for-rbac --sdk-auth --role contributor` |
-| `AZURE_RESOURCE_GROUP`  | Nom du groupe de ressources Azure                      |
-| `ACR_NAME`              | Nom du registre Azure Container Registry (sans .azurecr.io) |
+| Secret | Comment l'obtenir |
+|---|---|
+| `AZURE_CREDENTIALS` | `az ad sp create-for-rbac --sdk-auth --role contributor` |
+| `AZURE_RESOURCE_GROUP` | le nom de ton groupe de ressources Azure |
+| `ACR_NAME` | le nom de ton Container Registry (sans `.azurecr.io`) |
