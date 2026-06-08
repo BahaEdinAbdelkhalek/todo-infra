@@ -10,7 +10,6 @@ import { Todo } from '../../../core/graphql/todo.types';
     <div class="group flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-accent/50"
       [class.opacity-60]="todo.completed">
 
-      <!-- Checkbox button -->
       <button
         class="mt-0.5 h-5 w-5 shrink-0 rounded border border-input p-0 inline-flex items-center justify-center transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         [class.bg-primary]="todo.completed"
@@ -23,7 +22,6 @@ import { Todo } from '../../../core/graphql/todo.types';
         </svg>
       </button>
 
-      <!-- Text -->
       <div class="min-w-0 flex-1">
         <p class="text-sm font-medium leading-snug"
           [class.line-through]="todo.completed"
@@ -35,7 +33,6 @@ import { Todo } from '../../../core/graphql/todo.types';
         </p>
       </div>
 
-      <!-- Priority badge -->
       <span class="shrink-0 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors"
         [ngClass]="{
           'border-transparent bg-destructive text-destructive-foreground': todo.priority === 'HIGH',
@@ -45,7 +42,6 @@ import { Todo } from '../../../core/graphql/todo.types';
         {{ todo.priority }}
       </span>
 
-      <!-- Delete button -->
       <button
         class="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 inline-flex items-center justify-center rounded-md p-0 text-sm font-medium ring-offset-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         (click)="delete.emit(todo.id)"
