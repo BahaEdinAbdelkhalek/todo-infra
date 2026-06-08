@@ -1,0 +1,62 @@
+name: Construction et publication
+
+on:
+  workflow_run:
+    workflows: ["Analyse du code"]
+    types: [completed]
+    branches: [main, dev]
+
+env:
+  IMAGE_API:      ${{ secrets.ACR_NAME }}.azurecr.io/todo-infra-api
+  IMAGE_FRONTEND: ${{ secrets.ACR_NAME }}.azurecr.io/todo-infra-frontend
+
+jobs:
+  build:
+    name: Build & push ACR
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SHA court
+        id: meta
+        run: echo "sha=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Connexion Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Connexion ACR
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.IMAGE_API }}:${{ steps.meta.outputs.sha }}
+            ${{ env.IMAGE_API }}:${{ github.event.workflow_run.head_branch }}
+            ${{ env.IMAGE_API }}:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:${{ steps.meta.outputs.sha }}
+            ${{ env.IMAGE_FRONTEND }}:${{ github.event.workflow_run.head_branch }}
+            ${{ env.IMAGE_FRONTEND }}:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
